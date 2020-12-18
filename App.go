@@ -1,22 +1,18 @@
 package main
 
 import (
-	"crypto/tls"
-	"github.com/thoj/go-ircevent"
+	"bytes"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/websocket"
 	"gopkg.in/telegram-bot-api.v4"
+	"math/rand"
 	"os"
 	"regexp"
 	"strconv"
-
-	log "github.com/sirupsen/logrus"
-	"math/rand"
 	"time"
 )
 
 const (
-	ircserver = "irc.freenode.net:7000"
-	ircchannel = "#steamdb-announce"
-
 	ENVVAR_TELEGRAMTOKEN = "TELEGRAMTOKEN"
 	ENVVAR_TELEGRAMCHATID = "TELEGRAMCHATID"
 	ENVVAR_REGEXP = "REGEXP"
@@ -36,29 +32,28 @@ func main() {
 }
 
 func connectIrcAndWaitForMessages() {
-	ircnick1 := getRandomName()
-	irccon := irc.IRC(ircnick1, "IRCTestSSL")
-	irccon.VerboseCallbackHandler = false
-	irccon.Debug = false
-	irccon.UseTLS = true
-	irccon.TLSConfig = &tls.Config{InsecureSkipVerify: true}
-	irccon.AddCallback("001", func(e *irc.Event) { irccon.Join(ircchannel) })
-	irccon.AddCallback("PRIVMSG", func(e *irc.Event) {
-		manageIrcMessage(e.Message())
-	})
-	err := irccon.Connect(ircserver)
+	config,_ := websocket.NewConfig("wss://steamdb.info/api/realtime/", "http://localhost.localdomain/")
+	ws, err := websocket.DialConfig(config)
 	if err != nil {
-		log.Fatalf("Err %s", err )
-		return
+		log.Fatalln(err)
 	}
-	irccon.Loop()
+
+	for {
+		msg := make([]byte, 512)
+		_, err = ws.Read(msg)
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		manageMessage(string(msg[:bytes.Index(msg, []byte{0, 0, 0, 0})]))
+	}
 }
 
-func manageIrcMessage(message string) {
-	log.Infoln("message in irc", message)
+func manageMessage(message string) {
+	log.Infoln("message received", message)
 
 	// Here must be your filter, you can edit the source code, or use a regexp like:
-	// .*(App)+.*(12578080)+.*(PLAYERUNKNOWN)+.*(BATTLEGROUNDS)
+	// .*(12578080)+.*PLAYERUNKNOWN*
 
 	if compiledRegexp.MatchString(message) {
 		log.Infoln("message matchs the regexp")
@@ -105,18 +100,4 @@ func getEnvVar(s string) string {
 	}
 
 	return result
-}
-
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-func getRandomName() string {
-	b := make([]rune, 8)
-	for i := range b {
-		randata := rand.Intn(int(time.Now().UnixNano()%100000))%(len(letters)-1)
-		if randata == 0 {
-			randata = 1
-		}
-		b[i] = letters[randata]
-	}
-	return string(b)
 }
